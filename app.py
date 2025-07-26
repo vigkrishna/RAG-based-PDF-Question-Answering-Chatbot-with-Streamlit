@@ -19,6 +19,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
+from langchain_core.prompts import ChatPromptTemplate
 
 # --------- Utility Functions ----------
 
@@ -46,9 +47,45 @@ def get_rag_chain(api_key, retriever):
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
-        return_source_documents=True
+        return_source_documents=False
     )
     return qa_chain
+
+def rephrase_with_gemini(original_question, api_key):
+    lowered = original_question.lower().strip()
+
+    # Rule-based overrides for common types of queries
+    if "summarize" in lowered or "summarise" in lowered:
+        return "Here is the summary for the PDF you provided."
+    elif "extract keywords" in lowered:
+        return "Here are the extracted keywords from your document."
+    elif "generate questions" in lowered:
+        return "Here are some questions generated based on your PDF."
+    elif "topics" in lowered:
+        return "Here are the main topics covered in your PDF."
+    elif "table of contents" in lowered or "outline" in lowered:
+        return "Here is the outline of your uploaded PDF."
+
+    # Fallback to Gemini Flash for general rephrasing
+    prompt = ChatPromptTemplate.from_template(
+        "just only give initial starting of answer to user query, for example if user wants to summarise anything , your response should be here is your summary of your provided pdf like that {question}"
+    )
+
+    model = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash",
+        google_api_key=api_key,
+        convert_system_message_to_human=True
+    )
+    chain = prompt | model
+
+    try:
+        response = chain.invoke({"question": original_question})
+        cleaned = response.content.strip().removeprefix("Rephrased:").strip()
+        return cleaned
+    except Exception:
+        return f"You asked: {original_question}"
+
+
 
 def user_input(question, api_key, pdf_docs, history):
     if not api_key or not pdf_docs:
@@ -67,15 +104,14 @@ def user_input(question, api_key, pdf_docs, history):
     result = rag_chain({"query": question})
 
     answer = result["result"]
-    sources = result["source_documents"]
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     pdf_names = ", ".join([pdf.name for pdf in pdf_docs])
 
+    rephrased_question = rephrase_with_gemini(question, api_key)
+
     history.append((question, answer, "Google AI", timestamp, pdf_names))
 
-    st.markdown(display_chat(question, answer), unsafe_allow_html=True)
-    for doc in sources:
-        st.markdown(f"<div style='color:gray'><b>Source:</b> {doc.page_content[:300]}...</div>", unsafe_allow_html=True)
+    st.markdown(display_chat(rephrased_question, answer,timestamp), unsafe_allow_html=True)
 
     if len(st.session_state.conversation_history) > 0:
         df = pd.DataFrame(st.session_state.conversation_history, columns=["Question", "Answer", "Model", "Timestamp", "PDF Name"])
@@ -84,38 +120,46 @@ def user_input(question, api_key, pdf_docs, history):
         href = f'<a href="data:file/csv;base64,{b64}" download="conversation_history.csv"><button>Download conversation history</button></a>'
         st.sidebar.markdown(href, unsafe_allow_html=True)
 
-def display_chat(user_msg, bot_msg):
+def display_chat(user_msg, bot_msg, timestamp):
     return f"""
-    <style>
-        .chat-message {{ padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 1rem; display: flex; }}
-        .chat-message.user {{ background-color: #2b313e; }}
-        .chat-message.bot {{ background-color: #475063; }}
-        .avatar img {{ max-width: 78px; max-height: 78px; border-radius: 50%; }}
-        .message {{ color: white; padding: 0 1.5rem; width: 80%; }}
-    </style>
-    <div class="chat-message user">
-        <div class="avatar"><img src="https://i.ibb.co/CKpTnWr/user-icon-2048x2048-ihoxz4vq.png"></div>
-        <div class="message">{user_msg}</div>
-    </div>
-    <div class="chat-message bot">
-        <div class="avatar"><img src="https://i.ibb.co/wNmYHsx/langchain-logo.webp"></div>
-        <div class="message">{bot_msg}</div>
+    <div style="margin-bottom: 1.5rem;">
+        <div>
+            <strong style="font-size: 1.05rem;">AI Generated Response</strong>
+            <span style="font-size: 0.85rem; color: gray; margin-left: 10px;">{timestamp}</span><br>
+            <div style="font-size: 1rem; line-height: 1.6; margin-top: 6px;">
+                {user_msg}<br>{bot_msg}
+            </div>
+        </div>
     </div>
     """
+
+
+
+
 
 # --------- Streamlit App UI ----------
 
 def main():
-    st.set_page_config(page_title="Chat with PDFs using RAG", page_icon=":books:")
-    st.header("Chat with PDFs using RAG :books:")
+    st.markdown("""
+    <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+    <style>
+        body, .stMarkdown, .stTextInput, .stButton {
+            font-family: 'Roboto', sans-serif !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+
+    st.set_page_config(page_title="Ask, Learn, Discover – Directly from Your PDFs!", page_icon="📚")
+
+    st.header("Ask, Learn, Discover – Directly from Your PDFs! :books:")
 
     if "conversation_history" not in st.session_state:
         st.session_state.conversation_history = []
 
-    # Sidebar
     with st.sidebar:
-        st.title("RAG Chat Settings")
-        api_key = st.text_input("Enter your Google API Key:", type="password")
+        st.title("Smart Document Assistant")
+        api_key = st.text_input("Enter your Google API Key",type="password")
         st.markdown("Get your API key from [Google AI Studio](https://ai.google.dev)")
 
         col1, col2 = st.columns(2)
@@ -135,9 +179,24 @@ def main():
                     st.success("Processing complete.")
             else:
                 st.warning("Please upload PDF files.")
+                
+        st.sidebar.markdown("""
+<hr style="margin-top: 2rem; margin-bottom: 0.5rem;">
+<div style='text-align: center; font-size: 0.9rem;'>
+    Made with ❤️ by <strong>Krishna Vig</strong><br>
+    <a href="https://github.com/vigkrishna" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="20" style="margin-right: 5px; vertical-align: middle;">GitHub
+    </a>
+    &nbsp;•&nbsp;
+    <a href="https://www.linkedin.com/in/vigkrishna/" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" width="20" style="margin-right: 5px; vertical-align: middle;">LinkedIn
+    </a>
+</div>
+""", unsafe_allow_html=True)
+        
 
-    # User input
-    question = st.text_input("Ask a question from the PDFs:")
+    question = st.text_input(label="", placeholder="Ask anything", key="user_question")
+
     if question:
         user_input(question, api_key, pdf_docs, st.session_state.conversation_history)
 
