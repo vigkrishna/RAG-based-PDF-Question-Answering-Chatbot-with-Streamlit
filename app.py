@@ -1,7 +1,5 @@
 import streamlit as st
 import asyncio
-
-# Patch for asyncio event loop in Streamlit thread
 try:
     asyncio.get_running_loop()
 except RuntimeError:
@@ -23,6 +21,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # --------- Utility Functions ----------
 
+# Step 1: Extract text from PDF files
 def get_pdf_text(pdf_docs):
     text = ""
     for pdf in pdf_docs:
@@ -31,16 +30,19 @@ def get_pdf_text(pdf_docs):
             text += page.extract_text()
     return text
 
+#Step 2: Split text into manageable chunks
 def get_text_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
     return text_splitter.split_text(text)
 
+#Step 3: Build the vector store using FAISS(Facebook AI Similarity Search), basically converting text chunks to vector embeddings
 def build_vector_store(text_chunks, api_key):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=api_key)
     vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     vector_store.save_local("faiss_index")
     return vector_store
 
+#Step 4: Defining the Retrieval-Augmented Generation (RAG) chain
 def get_rag_chain(api_key, retriever):
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3, google_api_key=api_key)
     qa_chain = RetrievalQA.from_chain_type(
@@ -51,10 +53,11 @@ def get_rag_chain(api_key, retriever):
     )
     return qa_chain
 
+#Step 5: Rephrase the question using Gemini Flash
+# This function uses a rule-based approach to handle common types of queries and falls back to Gemini
 def rephrase_with_gemini(original_question, api_key):
     lowered = original_question.lower().strip()
 
-    # Rule-based overrides for common types of queries
     if "summarize" in lowered or "summarise" in lowered:
         return "Here is the summary for the PDF you provided."
     elif "extract keywords" in lowered:
@@ -66,7 +69,6 @@ def rephrase_with_gemini(original_question, api_key):
     elif "table of contents" in lowered or "outline" in lowered:
         return "Here is the outline of your uploaded PDF."
 
-    # Fallback to Gemini Flash for general rephrasing
     prompt = ChatPromptTemplate.from_template(
         "just only give initial starting of answer to user query, for example if user wants to summarise anything , your response should be here is your summary of your provided pdf like that {question}"
     )
@@ -86,7 +88,7 @@ def rephrase_with_gemini(original_question, api_key):
         return f"You asked: {original_question}"
 
 
-
+#Step 6: Handle user input and display chat
 def user_input(question, api_key, pdf_docs, history):
     if not api_key or not pdf_docs:
         st.warning("Please provide a Google API key and upload PDFs.")
@@ -137,8 +139,7 @@ def display_chat(user_msg, bot_msg, timestamp):
 
 
 
-# --------- Streamlit App UI ----------
-
+#Step 7: Streamlit UI
 def main():
     st.markdown("""
     <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
@@ -202,3 +203,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    
+    
+    
+#Project done and dusted, 
+#Thank you for using this project,
+#If you have any questions or suggestions, feel free to reach out on GitHub or LinkedIn
+#Happy coding! 😊    
