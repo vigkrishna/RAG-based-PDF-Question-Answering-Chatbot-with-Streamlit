@@ -2,6 +2,10 @@
 
 This project implements a **Retrieval-Augmented Generation (RAG)** pipeline for efficient document processing and knowledge retrieval. It extracts text and tables from PDFs using the **Unstructured** library, stores raw PDFs in **Redis**, and indexes extracted embeddings in **PGVector** for semantic search. The system leverages **MultiVector Retriever** for context retrieval before querying an **LLM (GPT model)**.
 
+**Live Site:** 🌐 [smart-doc-assistant.streamlit.app](https://smart-doc-assistant.streamlit.app/)
+
+
+
 ### Architectural Diagram
 ![Architectural Diagram](https://github.com/user-attachments/assets/12f49f3e-6aab-42ce-8beb-f910de0075ea)
 
